@@ -5,7 +5,7 @@
 local ServerScriptService = game:GetService("ServerScriptService")
 local Players             = game:GetService("Players")
 
-local Server = ServerScriptService:WaitForChild("Server")
+local Server = ServerScriptService:WaitForChild("Server"):WaitForChild("Services")
 
 -- Load modules
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
