@@ -23,6 +23,12 @@
       }
     },
 
+    "StarterGui": {
+       "Client": {
+        "$path": "src/startergui"
+       }
+    },
+
     "Workspace": {
       "$properties": {
         "FilteringEnabled": true
