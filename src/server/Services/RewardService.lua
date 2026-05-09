@@ -1,75 +1,56 @@
--- RewardService.lua
--- Handles what happens after a case breaks or escapes.
--- Awards cash, increments broken-case counter, triggers slot unlocks,
--- and fires UI updates to the client.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players           = game:GetService("Players")
-
-local PlayerDataService  -- injected
-local SlotService        -- injected
-
-local ProgressionCfg = require(ReplicatedStorage.Shared.Config.ProgressionConfig)
-
 local RewardService = {}
 
--- RemoteEvent: fires to the owning client with { Cash, BrokenCases, Event }
-local UpdateRemote
-
-function RewardService.Init(playerDataService, slotService)
-	PlayerDataService = playerDataService
-	SlotService       = slotService
-
-	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-	if not remotes then
-		remotes = Instance.new("Folder")
-		remotes.Name = "Remotes"
-		remotes.Parent = ReplicatedStorage
-	end
-
-	UpdateRemote = remotes:FindFirstChild("PlayerUpdate")
-	if not UpdateRemote then
-		UpdateRemote = Instance.new("RemoteEvent")
-		UpdateRemote.Name = "PlayerUpdate"
-		UpdateRemote.Parent = remotes
-	end
+function RewardService:Init(services)
+	self.Services = services
+	self.PlayerUpdate = services.Remotes:WaitForChild("PlayerUpdate")
 end
 
-function RewardService.OnCaseBroken(player, caseTypeCfg)
-	-- Cash
-	local newCash = PlayerDataService.AddCash(player, caseTypeCfg.CashReward)
-
-	-- Broken-case count
-	local broken = PlayerDataService.IncrementBrokenCases(player)
-
-	print(string.format("[RewardService] %s broke a case | cash=%d broken=%d",
-		player.Name, newCash, broken))
-
-	-- Check for Slot 2 unlock
-	if broken == ProgressionCfg.Slot2UnlockAt then
-		SlotService.UnlockSlot(player, 2)
-		RewardService._fireUpdate(player, newCash, broken, "Slot2Unlocked")
-	else
-		RewardService._fireUpdate(player, newCash, broken, "CaseBroken")
-	end
+function RewardService:AwardCaseBreak(player, rewardAmount)
+	local data = self.Services.PlayerDataService
+	data:AddCash(player, rewardAmount)
+	return data:IncrementBrokenCases(player)
 end
 
-function RewardService.OnCaseEscaped(player, _caseTypeCfg)
-	-- No penalty this slice; just update display
-	local d = PlayerDataService.Get(player)
-	if not d then return end
-	RewardService._fireUpdate(player, d.Cash, d.BrokenCases, "CaseEscaped")
+function RewardService:AwardEscape(player)
+	return self.Services.PlayerDataService:IncrementEscaped(player)
 end
 
-function RewardService._fireUpdate(player, cash, brokenCases, event)
-	if UpdateRemote then
-		UpdateRemote:FireClient(player, {
-			Cash        = cash,
-			BrokenCases = brokenCases,
-			Target      = ProgressionCfg.Slot2UnlockAt,
-			Event       = event,
-		})
+function RewardService:GetObjectiveText(player)
+	local dataService = self.Services.PlayerDataService
+	local data = dataService:GetData(player)
+
+	if dataService:HasUnlockedSlot(player, 2) then
+		return "Slot 2 Unlocked"
 	end
+
+	if not data.OwnedGuns.StarterPistol then
+		return "Claim FREE GUN CRATE"
+	end
+
+	if not data.PlacedGuns.StarterPistol then
+		return "Place Starter Pistol"
+	end
+
+	local broken = math.clamp(data.CasesBroken.Value, 0, 3)
+	return string.format("Break 3 cases: %d / 3", broken)
+end
+
+function RewardService:PushUpdate(player, overrideObjective)
+	if not player or not player.Parent then
+		return
+	end
+
+	local data = self.Services.PlayerDataService:GetData(player)
+
+	self.PlayerUpdate:FireClient(player, {
+		cash = data.Cash.Value,
+		casesBroken = data.CasesBroken.Value,
+		escaped = data.Escaped.Value,
+		objective = overrideObjective or self:GetObjectiveText(player),
+		hasStarterPistol = data.OwnedGuns.StarterPistol == true,
+		starterPistolPlaced = data.PlacedGuns.StarterPistol ~= nil,
+		slot2Unlocked = data.UnlockedSlots[2] == true,
+	})
 end
 
 return RewardService
